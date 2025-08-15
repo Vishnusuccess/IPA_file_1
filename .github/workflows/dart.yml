@@ -4,9 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+
 permissions:
   contents: write
   packages: write
+
 jobs:
   build-ios:
     name: iOS Build (unsigned IPA)
@@ -71,20 +73,13 @@ jobs:
           echo "::notice ::build_runner exited with code $?"
           set -e
 
-      # Ensure PRODUCT_NAME is sane (optional safeguard)
-      - name: Configure iOS build settings
+      - name: Ensure PRODUCT_NAME is sane (optional safeguard)
         shell: bash
         run: |
           set -euo pipefail
           if grep -q 'PRODUCT_NAME = "";' ios/Runner.xcodeproj/project.pbxproj; then
             sed -i '' 's/PRODUCT_NAME = "";/PRODUCT_NAME = "TrueMeMobile";/g' ios/Runner.xcodeproj/project.pbxproj
           fi
-
-      # ✅ Fix: Ensure Bundle Identifier to prevent missing bundle ID errors
-      - name: Ensure bundle identifier
-        run: |
-          BUNDLE_ID="com.vishnu.trueme"
-          sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = .*/PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;/g" ios/Runner.xcodeproj/project.pbxproj
 
       - name: CocoaPods install (arm64)
         working-directory: ios
@@ -174,15 +169,4 @@ jobs:
           else
             echo ":x: **Failed:** IPA creation failed" >> $GITHUB_STEP_SUMMARY
             echo "Check the attached **build-output** artifact for the full Xcode/Flutter logs." >> $GITHUB_STEP_SUMMARY
-
-      # Optional: Upload directly to TestFlight (uncomment if needed)
-      # - name: Upload to TestFlight
-      #   env:
-      #     APPLE_ID: ${{ secrets.APPLE_ID }}
-      #     APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
-      #   run: |
-      #     xcrun altool --upload-app \
-      #       -f "${{ env.IPA_PATH }}" \
-      #       -t ios \
-      #       -u "$APPLE_ID" \
-      #       -p "$APP_SPECIFIC_PASSWORD"
+          fi
