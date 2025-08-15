@@ -1,0 +1,188 @@
+name: ios-ipa-build
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+  packages: write
+jobs:
+  build-ios:
+    name: iOS Build (unsigned IPA)
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Setup Flutter (stable, arm64)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          architecture: arm64
+          cache: true
+
+      - name: Tooling diagnostics
+        run: |
+          flutter --version
+          flutter doctor -v
+          xcodebuild -version
+          sw_vers
+          gem --version || true
+          pod --version || true
+
+      - name: iOS platform diagnostics
+        run: |
+          echo "=== iOS Platform Diagnostics ==="
+          if [ ! -d "ios" ]; then
+            echo "::error :::x: iOS directory missing - run: flutter create --platforms ios ."
+            exit 1
+          fi
+          MISSING_FILES=()
+          [ ! -f "ios/Podfile" ] && MISSING_FILES+=("ios/Podfile")
+          [ ! -d "ios/Runner.xcodeproj" ] && MISSING_FILES+=("ios/Runner.xcodeproj")
+          [ ! -f "ios/Runner/Info.plist" ] && MISSING_FILES+=("ios/Runner/Info.plist")
+          if [ ${#MISSING_FILES[@]} -gt 0 ]; then
+            echo "::error :::x: Missing critical iOS files:"; printf ' - %s\n' "${MISSING_FILES[@]}"; exit 1
+          fi
+          echo ":white_check_mark: All critical iOS files present"
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate l10n (ignore failures)
+        shell: bash
+        run: |
+          set +e
+          flutter gen-l10n
+          echo "::notice ::flutter gen-l10n exited with code $?"
+          set -e
+
+      - name: Build runner (ignore failures)
+        shell: bash
+        run: |
+          set +e
+          flutter pub run build_runner build --delete-conflicting-outputs
+          echo "::notice ::build_runner exited with code $?"
+          set -e
+
+      # Ensure PRODUCT_NAME is sane (optional safeguard)
+      - name: Configure iOS build settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q 'PRODUCT_NAME = "";' ios/Runner.xcodeproj/project.pbxproj; then
+            sed -i '' 's/PRODUCT_NAME = "";/PRODUCT_NAME = "TrueMeMobile";/g' ios/Runner.xcodeproj/project.pbxproj
+          fi
+
+      # ✅ Fix: Ensure Bundle Identifier to prevent missing bundle ID errors
+      - name: Ensure bundle identifier
+        run: |
+          BUNDLE_ID="com.vishnu.trueme"
+          sed -i '' "s/PRODUCT_BUNDLE_IDENTIFIER = .*/PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;/g" ios/Runner.xcodeproj/project.pbxproj
+
+      - name: CocoaPods install (arm64)
+        working-directory: ios
+        run: |
+          arch -arm64 pod install || (pod repo update && arch -arm64 pod install)
+          pod --version
+
+      - name: Flutter build IPA (unsigned)
+        run: |
+          set -o pipefail
+          flutter clean
+          flutter build ipa --no-codesign --verbose 2>&1 | tee build_output.log
+          BUILD_CODE=${PIPESTATUS[0]}
+          echo "BUILD_EXIT_CODE=$BUILD_CODE" >> $GITHUB_ENV
+          if [ $BUILD_CODE -ne 0 ]; then
+            echo "::error ::Flutter iOS build failed"
+            exit $BUILD_CODE
+          fi
+          IPA_DIR="build/ios/ipa"
+          echo "IPA_DIR=$IPA_DIR" >> $GITHUB_ENV
+          if [ -z "$(ls -1 $IPA_DIR/*.ipa 2>/dev/null)" ]; then
+            echo "::error ::No IPA produced at $IPA_DIR"
+            exit 1
+          fi
+          IPA_PATH=$(ls -1 $IPA_DIR/*.ipa | head -1)
+          echo "IPA_PATH=$IPA_PATH" >> $GITHUB_ENV
+          echo "IPA_CREATED=true" >> $GITHUB_ENV
+          echo "IPA_SIZE=$(ls -lh "$IPA_PATH" | awk '{print $5}')" >> $GITHUB_ENV
+
+      - name: Always upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            build_output.log
+            build/**/log/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Save IPA to release folder
+        if: env.IPA_CREATED == 'true'
+        run: |
+          mkdir -p release
+          cp "${{ env.IPA_PATH }}" release/TrueMeMobile.ipa
+          ls -lh release
+
+      - name: Upload to GitHub Release (for tags)
+        if: env.IPA_CREATED == 'true' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/TrueMeMobile.ipa
+          name: "iOS Release ${{ github.ref_name }}"
+          body: |
+            ## :iphone: iOS Application Release
+            **Version:** ${{ github.ref_name }}
+            **Build Date:** ${{ github.run_started_at }}
+            **File Size:** ${{ env.IPA_SIZE }}
+            _Unsigned build created by GitHub Actions._
+
+      - name: Create Release for Manual Builds
+        if: env.IPA_CREATED == 'true' && !startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/TrueMeMobile.ipa
+          tag_name: "build-${{ github.run_number }}-${{ github.sha }}"
+          name: "iOS Manual Build #${{ github.run_number }}"
+          body: |
+            ## :iphone: iOS Application Manual Build
+            **Build Number:** #${{ github.run_number }}
+            **Commit:** ${{ github.sha }}
+            **Build Date:** ${{ github.run_started_at }}
+            **File Size:** ${{ env.IPA_SIZE }}
+            _Unsigned build created by GitHub Actions._
+          draft: false
+          prerelease: true
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## :apple: iOS Build Summary" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.IPA_CREATED }}" = "true" ]; then
+            echo ":white_check_mark: **Success:** IPA created" >> $GITHUB_STEP_SUMMARY
+            echo "- **File:** release/TrueMeMobile.ipa" >> $GITHUB_STEP_SUMMARY
+            echo "- **Size:** ${{ env.IPA_SIZE }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Path:** ${{ env.IPA_PATH }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo ":x: **Failed:** IPA creation failed" >> $GITHUB_STEP_SUMMARY
+            echo "Check the attached **build-output** artifact for the full Xcode/Flutter logs." >> $GITHUB_STEP_SUMMARY
+
+      # Optional: Upload directly to TestFlight (uncomment if needed)
+      # - name: Upload to TestFlight
+      #   env:
+      #     APPLE_ID: ${{ secrets.APPLE_ID }}
+      #     APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+      #   run: |
+      #     xcrun altool --upload-app \
+      #       -f "${{ env.IPA_PATH }}" \
+      #       -t ios \
+      #       -u "$APPLE_ID" \
+      #       -p "$APP_SPECIFIC_PASSWORD"
