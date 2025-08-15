@@ -1,0 +1,55 @@
+# Melos - A tool for managing Dart & Flutter repositories with multiple packages
+# https://pub.dev/packages/melos
+# To install -> `dart pub global activate melos`
+name: praktika_mems
+
+packages:
+  - "."
+  - packages/**
+
+# To use -> `melos run <script>`
+scripts:
+  newbranch:
+    description: |
+      Run after pulling a new branch to refresh everything
+    run: |
+      flutter clean
+      flutter pub get
+      melos exec --depends-on="build_runner" -- flutter pub run build_runner build --delete-conflicting-outputs
+
+  postclean:
+    description: |
+      Run postclean after `flutter clean` or to update dependencies
+    run: |
+      melos exec -- "flutter pub get"
+  analyze:
+    run: |
+      melos exec -c 2 -- \
+      dart analyze . --fatal-infos
+  format:
+    description: |
+      Run `dart format` in all packages.
+    run: |
+      dart format lib --fix -l 80
+      dart format test --fix -l 80
+      # dart format integration_test --fix -l 80
+
+  gen:br:
+    description: Run `flutter pub run build_runner build` for all relevant packages.
+    run: melos exec --depends-on="build_runner" -- flutter pub run build_runner build --delete-conflicting-outputs
+
+  test:
+    description: Run tests
+    run: flutter test --coverage --test-randomize-ordering-seed random
+
+  test_coverage:
+    description: Run code coverage report
+    run: |
+      flutter test --coverage
+      genhtml coverage/lcov.info -o coverage/ 
+      open coverage/index.html
+
+  translation:
+    description: Generate new translations
+    run: |
+      flutter gen-l10n --arb-dir="lib/l10n/arb"

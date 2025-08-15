@@ -1,0 +1,147 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+// Load keystore properties
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "me.trueself.trueme"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId = "me.trueself.trueme"
+        minSdk = 23
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        multiDexEnabled true
+
+        ndk {
+            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64", "x86"
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (!keystorePropertiesFile.exists()) {
+                throw new GradleException("❌ key.properties not found at: ${keystorePropertiesFile}")
+            }
+            def ksPath = keystoreProperties["storeFile"]?.toString()
+            if (!ksPath) throw new GradleException("❌ 'storeFile' missing in key.properties")
+            def ksFile = file(ksPath) // path relative to android/app/
+            if (!ksFile.exists()) {
+                throw new GradleException("❌ Keystore not found at: ${ksFile.absolutePath}")
+            }
+            storeFile ksFile
+            storePassword keystoreProperties["storePassword"]
+            keyAlias keystoreProperties["keyAlias"]
+            keyPassword keystoreProperties["keyPassword"]
+        }
+
+        debug {
+            // Uses default debug keystore
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled true
+            shrinkResources true
+            crunchPngs false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+
+        // Optional: non-minified release for testing
+        releaseNoMinify {
+            initWith release
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.debug
+        }
+
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    flavorDimensions "flavor-type"
+
+    productFlavors {
+        prod {
+            dimension "flavor-type"
+            manifestPlaceholders = [
+                    appName: "TrueMe Space",
+                    onesignal_app_id: "c30a3cca-6739-4bf9-9b7b-56ea483f66aa",
+                    onesignal_google_project_number: "",
+                    auth0Domain: "trueme-space.uk.auth0.com",
+                    auth0Scheme: "trueme"
+            ]
+            resValue "string", "app_name", "TrueMe Space"
+            applicationIdSuffix ".prod"
+        }
+
+        dev {
+            dimension "flavor-type"
+            manifestPlaceholders = [
+                    appName: "TrueMe - Dev",
+                    onesignal_app_id: "e37acc7e-e92f-47ff-81a0-ff5c46c8fcfd",
+                    onesignal_google_project_number: "",
+                    auth0Domain: "dev-uoncfqz1w648mmdv.uk.auth0.com",
+                    auth0Scheme: "trueme"
+            ]
+            resValue "string", "app_name", "TrueMe - Dev"
+            applicationIdSuffix ".dev"
+        }
+    }
+
+    packagingOptions {
+        resources {
+            excludes += [
+                    "META-INF/DEPENDENCIES",
+                    "META-INF/LICENSE*",
+                    "META-INF/NOTICE*",
+                    "META-INF/ASL2.0"
+            ]
+        }
+    }
+    splits {
+        abi { enable false }
+        density { enable false }
+        language { enable false }
+    }
+}
+// Force dev flavor to use lib/main_dev.dart as the entrypoint
+afterEvaluate {
+    tasks.matching { it.name.startsWith("compileFlutterBuildDev") }.configureEach { t ->
+        if (t.hasProperty("additionalArgs")) {
+            t.additionalArgs += ["-t", "lib/main_dev.dart"]
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    // MultiDex support
+    implementation "androidx.multidex:multidex:2.0.1"
+}

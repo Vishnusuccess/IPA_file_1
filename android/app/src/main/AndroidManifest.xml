@@ -1,0 +1,71 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="${applicationId}.permission.C2D_MESSAGE" />
+
+    <!-- Explicitly remove AD_ID permission if added by dependencies -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
+
+    <permission
+        android:name="${applicationId}.permission.C2D_MESSAGE"
+        android:protectionLevel="signature" />
+
+    <application
+        android:name="${applicationName}"
+        android:label="trueme"
+        android:icon="@mipmap/ic_launcher">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize"
+            android:taskAffinity=""
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode">
+
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+        <!-- Auth0 Redirect Activity without intent-filter (handled by SDK) -->
+        <activity
+            android:name="com.auth0.android.provider.RedirectActivity"
+            android:exported="true"
+            android:launchMode="singleTask" />
+
+        <!-- Flutter Plugin Registration -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!-- OneSignal config -->
+        <meta-data android:name="onesignal_app_id" android:value="${onesignal_app_id}" />
+        <meta-data android:name="com.onesignal.NotificationAccentColor.DEFAULT" android:value="FF9C27B0" />
+        <meta-data android:name="com.onesignal.NotificationIcon.DEFAULT" android:resource="@mipmap/ic_launcher" />
+
+        <service android:name="com.onesignal.NotificationOpenedReceiver" android:exported="false" />
+        <service android:name="com.onesignal.FCMIntentService" android:stopWithTask="false" />
+        <service android:name="com.onesignal.NotificationExtenderService" android:exported="false" />
+
+    </application>
+
+    <!-- Flutter plugin package visibility (Android 11+) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+</manifest>
